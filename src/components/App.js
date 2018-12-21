@@ -437,7 +437,7 @@ class App extends Component {
         let dateInfo = sgf.stringifyDates([[date.getFullYear(), date.getMonth() + 1, date.getDate()]])
 
         return gametree.new().mutate(draft => {
-            draft.root.data = {
+            let rootData = {
                 GM: ['1'], FF: ['4'], CA: ['UTF-8'],
                 AP: [`${this.appName}:${this.version}`],
                 KM: [setting.get('game.default_komi')],
@@ -445,10 +445,14 @@ class App extends Component {
             }
 
             if (handicapStones.length > 0) {
-                Object.assign(draft.root.data, {
+                Object.assign(rootData, {
                     HA: [handicap.toString()],
                     AB: handicapStones
                 })
+            }
+
+            for (let prop in rootData) {
+                draft.updateProperty(draft.root.id, prop, rootData[prop])
             }
         })
     }
@@ -1621,13 +1625,24 @@ class App extends Component {
         this.closeDrawer()
         this.setMode('play')
 
-        let copied = gametree.cloneNode(this.copyVariationData)
+        let copied = this.copyVariationData
+        let copiedId = null
+
         let newTree = tree.mutate(draft => {
-            let node = draft.get(treePosition)
-            node.children.push(copied)
+            let inner = (parentId, node) => {
+                let id = draft.appendNode(parentId, node.data)
+
+                for (let child of node.children) {
+                    inner(id, child)
+                }
+
+                return id
+            }
+
+            copiedId = inner(treePosition, copied)
         })
 
-        this.setCurrentTreePosition(newTree, copied.id)
+        this.setCurrentTreePosition(newTree, copiedId)
     }
 
     flattenVariation(tree, treePosition) {
@@ -1642,16 +1657,14 @@ class App extends Component {
         let inherit = ['BR', 'BT', 'DT', 'EV', 'GN', 'GC', 'PB', 'PW', 'RE', 'SO', 'SZ', 'WT', 'WR']
 
         let newTree = tree.mutate(draft => {
-            let rootNode = draft.get(draft.root.id)
-            rootNode.parentId = null
-            draft.root = rootNode
+            draft.makeRoot(treePosition)
 
             for (let prop of ['AB', 'AW', 'AE', 'B', 'W']) {
-                draft.removeProperty(draft.root.id, prop)
+                draft.removeProperty(treePosition, prop)
             }
 
             for (let prop of inherit) {
-                draft.updateProperty(draft.root.id, prop, tree.root.data[prop])
+                draft.updateProperty(treePosition, prop, tree.root.data[prop])
             }
 
             for (let x = 0; x < board.width; x++) {
@@ -1659,7 +1672,7 @@ class App extends Component {
                     let sign = board.get([x, y])
                     if (sign == 0) continue
 
-                    draft.addToProperty(draft.root.id, sign > 0 ? 'AB' : 'AW', sgf.stringifyVertex([x, y]))
+                    draft.addToProperty(treePosition, sign > 0 ? 'AB' : 'AW', sgf.stringifyVertex([x, y]))
                 }
             }
         })
